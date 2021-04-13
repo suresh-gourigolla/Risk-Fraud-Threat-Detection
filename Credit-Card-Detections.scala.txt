@@ -1,0 +1,224 @@
+
+
+-----------------Read Data -------------------------------------------------
+
+val fileSize = dbutils.fs.ls("wasbs://dataset@XXXX.blob.core.windows.net/Azure/dataset/Fintech/CreditCard/credit_card_data.txt").map(_.size).sum / (Math.pow(1024.0,3))
+println(f"Size of file in GB: $fileSize%2.2f")
+
+-----------------Register Table (AuthData) From CSV--------------------------
+
+val rawAuth = sqlContext.read.format("csv").option("delimiter", "|").option("inferSchema", "true").load("wasbs://dataset@XXXXX.blob.core.windows.net/Azure/dataset/Fintech/CreditCard/credit_card_data.txt")
+
+rawAuth.toDF("AUTH_ID",
+"ACCT_ID_TOKEN",
+"FRD_IND",
+"ACCT_ACTVN_DT",
+"ACCT_AVL_CASH_BEFORE_AMT",
+"ACCT_AVL_MONEY_BEFORE_AMT",
+"ACCT_CL_AMT",
+"ACCT_CURR_BAL",
+"ACCT_MULTICARD_IND",
+"ACCT_OPEN_DT",
+"ACCT_PROD_CD",
+"ACCT_TYPE_CD",
+"ADR_VFCN_FRMT_CD",
+"ADR_VFCN_RESPNS_CD",
+"APPRD_AUTHZN_CNT",
+"APPRD_CASH_AUTHZN_CNT",
+"ARQC_RSLT_CD",
+"AUTHZN_ACCT_STAT_CD",
+"AUTHZN_AMT",
+"AUTHZN_CATG_CD",
+"AUTHZN_CHAR_CD",
+"AUTHZN_OPSET_ID",
+"AUTHZN_ORIG_SRC_ID",
+"AUTHZN_OUTSTD_AMT",
+"AUTHZN_OUTSTD_CASH_AMT",
+"AUTHZN_RQST_PROC_CD",
+"AUTHZN_RQST_PROC_DT",
+"AUTHZN_RQST_PROC_TM",
+"AUTHZN_RQST_TYPE_CD",
+"AUTHZN_TRMNL_PIN_CAPBLT_NUM",
+"AVG_DLY_AUTHZN_AMT",
+"CARD_VFCN_2_RESPNS_CD",
+"CARD_VFCN_2_VLDTN_DUR",
+"CARD_VFCN_MSMT_REAS_CD",
+"CARD_VFCN_PRESNC_CD",
+"CARD_VFCN_RESPNS_CD",
+"CARD_VFCN2_VLDTN_CD",
+"CDHLDR_PRES_CD",
+"CRCY_CNVRSN_RT",
+"ELCTR_CMRC_IND_CD",
+"HOME_PHN_NUM_CHNG_DUR",
+"HOTEL_STAY_CAR_RENTL_DUR",
+"LAST_ADR_CHNG_DUR",
+"LAST_PLSTC_RQST_REAS_CD",
+"MRCH_CATG_CD",
+"MRCH_CNTRY_CD",
+"NEW_USER_ADDED_DUR",
+"PHN_CHNG_SNC_APPN_IND",
+"PIN_BLK_CD",
+"PIN_VLDTN_IND",
+"PLSTC_ACTVN_DT",
+"PLSTC_ACTVN_REQD_IND",
+"PLSTC_FRST_USE_TS",
+"PLSTC_ISU_DUR",
+"PLSTC_PREV_CURR_CD",
+"PLSTC_RQST_TS",
+"POS_COND_CD",
+"POS_ENTRY_MTHD_CD",
+"RCURG_AUTHZN_IND",
+"RVRSL_IND",
+"SENDR_RSIDNL_CNTRY_CD",
+"SRC_CRCY_CD",
+"SRC_CRCY_DCML_PSN_NUM",
+"TRMNL_ATTNDNC_CD",
+"TRMNL_CAPBLT_CD",
+"TRMNL_CLASFN_CD",
+"TRMNL_ID",
+"TRMNL_PIN_CAPBLT_CD",
+"DISTANCE_FROM_HOME").repartition((fileSize/0.25).toInt).write.mode(SaveMode.Overwrite).format("parquet").saveAsTable("auth_data")
+
+---------------------------Explore Credit card Data, Print the schema, display the first 1,000 rows, use describe to get some statistics--------------
+
+SELECT * FROM auth_data
+
+---------------------------Describe Statistics of Table-----------------------------------------
+
+display(table("auth_data").describe())
+
+---------------------------: Visualization, Show the distribution of the account length----------
+
+select 
+  acct_id_token
+, auth_id
+, case when FRD_IND = 'Y' then 1 else 0 end fraud_reported 
+, cast(AUTHZN_RQST_PROC_DT as bigint) -  cast (ACCT_OPEN_DT as bigint) account_age
+, cast(PLSTC_ACTVN_DT as bigint) -  cast (ACCT_OPEN_DT as bigint) activation_age
+, cast(PLSTC_FRST_USE_TS as bigint) -  cast (ACCT_OPEN_DT as bigint) time_since_first_use
+, int(substring(AUTHZN_RQST_PROC_TM, 0,2)) time_of_day
+, AUTHZN_AMT
+, ACCT_AVL_CASH_BEFORE_AMT
+, ACCT_AVL_MONEY_BEFORE_AMT
+, ACCT_CL_AMT
+, ACCT_CURR_BAL
+, AUTHZN_OUTSTD_AMT	
+, AUTHZN_OUTSTD_CASH_AMT
+, APPRD_AUTHZN_CNT
+, APPRD_CASH_AUTHZN_CNT
+, ACCT_PROD_CD
+, AUTHZN_CHAR_CD
+, AUTHZN_CATG_CD
+, CARD_VFCN_2_RESPNS_CD
+, CARD_VFCN_2_VLDTN_DUR
+, POS_ENTRY_MTHD_CD
+, TRMNL_ATTNDNC_CD
+, TRMNL_CLASFN_CD
+, DISTANCE_FROM_HOME
+from auth_data
+
+--------------------------Create DataFrame from Query-----------------------------------------
+
+val query = sql(""" select 
+  acct_id_token
+, auth_id
+, double(case when FRD_IND = 'Y' then 1.0 else 0.0 end) fraud_reported 
+, cast(AUTHZN_RQST_PROC_DT as bigint) -  cast (ACCT_OPEN_DT as bigint) account_age
+, cast(PLSTC_ACTVN_DT as bigint) -  cast (ACCT_OPEN_DT as bigint) activation_age
+,  cast(PLSTC_FRST_USE_TS as bigint) -  cast (ACCT_OPEN_DT as bigint) time_since_first_use
+, int(substring(AUTHZN_RQST_PROC_TM, 0,2)) time_of_day
+, AUTHZN_AMT
+, ACCT_AVL_CASH_BEFORE_AMT
+, ACCT_AVL_MONEY_BEFORE_AMT
+, ACCT_CL_AMT
+, ACCT_CURR_BAL
+, AUTHZN_OUTSTD_AMT	
+, AUTHZN_OUTSTD_CASH_AMT
+, APPRD_AUTHZN_CNT
+, APPRD_CASH_AUTHZN_CNT
+, AUTHZN_CHAR_CD
+, AUTHZN_CATG_CD
+, CARD_VFCN_2_RESPNS_CD
+, CARD_VFCN_2_VLDTN_DUR
+, POS_ENTRY_MTHD_CD
+, TRMNL_ATTNDNC_CD
+, TRMNL_CLASFN_CD
+, DISTANCE_FROM_HOME
+from auth_data""")
+
+--------------------------------Define Feature Columns & Default Null Values--------------
+
+import org.apache.spark.ml._
+import org.apache.spark.ml.feature._
+import org.apache.spark.ml.classification._
+import org.apache.spark.ml.tuning._
+import org.apache.spark.ml.evaluation._
+import org.apache.spark.sql.functions._
+ 
+
+val features = query.columns.clone.filterNot(
+  x => x.toLowerCase.contains("fraud_reported") ||  
+  x.toLowerCase.contains("acct_id_token") ||
+  x.toLowerCase.contains("auth_id")
+)
+
+val categoricals = features.filter(x => x.contains("_CD"))
+val numerics = features.filterNot(x => x.contains("_CD"))
+
+val authDataSet = query.na.fill(0.0).na.fill("N/A")
+
+------------------------------Data Ready To Train Model---------------------------------------
+
+display(authDataSet)
+
+-------------------------------Define ML Pipeline to Engineer Features------------------------
+
+val stringIndexers = categoricals.map(x => new StringIndexer().setInputCol(x).setOutputCol(x+"_IDX"))
+val catColumns =  categoricals.map(_ +"_IDX")
+val vaNumerics = new VectorAssembler().setInputCols(numerics).setOutputCol("numericFeatures")
+val vaCategorical = new VectorAssembler().setInputCols(catColumns).setOutputCol("categoricalFeatures")
+val scaler = new StandardScaler().setInputCol("numericFeatures").setOutputCol("scaledNumericFeatures")
+val allFeatures = new VectorAssembler().setInputCols(Array("scaledNumericFeatures", "categoricalFeatures")).setOutputCol("features")
+val stages = stringIndexers :+ vaNumerics :+ scaler :+ vaCategorical :+ allFeatures
+val featurePipeline = new Pipeline().setStages(stages)
+
+-------------------------------Engineer Features------------------------------------------------
+
+val featureModel = featurePipeline.fit(authDataSet)
+
+featureModel.stages.filter(x => x.isInstanceOf[StringIndexerModel]).map(x => (x.asInstanceOf[StringIndexerModel].getInputCol, x.asInstanceOf[StringIndexerModel].labels.size))
+
+val featurizedDataset = featureModel.transform(authDataSet)
+
+----------------------------Display New Features-------------------------------------------
+
+display(featurizedDataset)
+
+----------------------------Cache Features in Memory----------------------------------------
+
+featurizedDataset.cache().rdd.count
+
+------------------------------Train Model Against Features-----------------------------------
+
+val lr = new LogisticRegression().setTol(1e-9).setFeaturesCol("features").setLabelCol("fraud_reported").setRegParam(0.01)
+val paramGrid = new ParamGridBuilder().addGrid(lr.maxIter, Array(100)).build()
+val eval = new BinaryClassificationEvaluator().setLabelCol("fraud_reported").setMetricName("areaUnderROC")
+//crossval.setEstimatorParamMaps(paramGrid)
+val tvs = new TrainValidationSplit().setEstimator(lr).setSeed(10020L).setEstimatorParamMaps(paramGrid).setEvaluator(eval)
+val model = tvs.fit(featurizedDataset)
+
+----------------------Evaluate the Model------------------------------
+
+model.validationMetrics
+
+val weights = sqlContext.createDataFrame((numerics++catColumns).zip(model.bestModel.asInstanceOf[LogisticRegressionModel].coefficients.toArray)).toDF("feature", "coefficient")
+
+println("Intercept: " + model.bestModel.asInstanceOf[LogisticRegressionModel].intercept)
+display(weights)
+
+display(
+  weights.selectExpr("feature", "abs(coefficient) as weight")
+  .orderBy(desc("weight")).limit(10)
+)
+
+----------------------------------Results interpretation -------------------------------------
